@@ -27,6 +27,8 @@ export function useWebRTC(roomId: string) {
   const peerIdRef = useRef<string>(generatePeerId());
   const roleRef = useRef<RoomRole | null>(null);
   const hasJoinedRef = useRef(false);
+  const iceRestartCount = useRef<Map<string, number>>(new Map());
+  const MAX_ICE_RESTARTS = 3;
 
   // State
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
@@ -210,11 +212,32 @@ export function useWebRTC(roomId: string) {
 
       onIceConnectionStateChange: (state) => {
         setIceState(state);
+        console.log(`[WebRTC] ICE state (${remotePeerId}):`, state);
 
-        // Handle ICE failures with restart
+        if (state === "checking") {
+          console.log("[WebRTC] ICE checking — gathering and testing candidates...");
+        }
+
+        if (state === "connected" || state === "completed") {
+          iceRestartCount.current.set(remotePeerId, 0);
+        }
+
+        // Handle ICE failures with retry attempts before giving up
         if (state === "failed") {
-          console.warn("[WebRTC] ICE failed, attempting restart");
-          handleIceRestart(remotePeerId);
+          const count = iceRestartCount.current.get(remotePeerId) || 0;
+          if (count < MAX_ICE_RESTARTS) {
+            iceRestartCount.current.set(remotePeerId, count + 1);
+            console.warn(`[WebRTC] ICE failed, attempting restart ${count + 1}/${MAX_ICE_RESTARTS}`);
+            handleIceRestart(remotePeerId);
+          } else {
+            console.error("[WebRTC] ICE failed after max restart attempts");
+            setConnectionState("failed");
+            setError(
+              "Peer-to-peer connection failed after multiple attempts. " +
+              "This usually means peers are behind incompatible NATs. " +
+              "A TURN relay server is required for this network configuration."
+            );
+          }
         }
       },
 

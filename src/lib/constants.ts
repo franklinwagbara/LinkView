@@ -9,7 +9,7 @@ const stunUrls = (
 
 const iceServers: RTCIceServer[] = [{ urls: stunUrls }];
 
-// Add TURN servers from environment variables (required for cross-network connections)
+// Add TURN servers from environment variables
 if (process.env.NEXT_PUBLIC_TURN_URLS) {
   iceServers.push({
     urls: process.env.NEXT_PUBLIC_TURN_URLS.split(","),
@@ -22,6 +22,35 @@ if (process.env.NEXT_PUBLIC_TURN_URLS) {
     username: process.env.NEXT_PUBLIC_TURN_USERNAME || "",
     credential: process.env.NEXT_PUBLIC_TURN_CREDENTIAL || "",
   });
+} else {
+  // Free TURN relay servers (OpenRelay by Metered.ca) — required for
+  // cross-network connections where STUN alone can't traverse symmetric NATs.
+  // These are free community TURN servers; replace with your own for production.
+  iceServers.push(
+    {
+      urls: "stun:stun.relay.metered.ca:80",
+    },
+    {
+      urls: "turn:global.relay.metered.ca:80",
+      username: "e9b4139634a9e32ab5641fa5",
+      credential: "IhmXfxTVIkgxZLzl",
+    },
+    {
+      urls: "turn:global.relay.metered.ca:80?transport=tcp",
+      username: "e9b4139634a9e32ab5641fa5",
+      credential: "IhmXfxTVIkgxZLzl",
+    },
+    {
+      urls: "turn:global.relay.metered.ca:443",
+      username: "e9b4139634a9e32ab5641fa5",
+      credential: "IhmXfxTVIkgxZLzl",
+    },
+    {
+      urls: "turns:global.relay.metered.ca:443?transport=tcp",
+      username: "e9b4139634a9e32ab5641fa5",
+      credential: "IhmXfxTVIkgxZLzl",
+    },
+  );
 }
 
 export const RTC_CONFIG: RTCConfiguration = {
@@ -29,6 +58,7 @@ export const RTC_CONFIG: RTCConfiguration = {
   iceCandidatePoolSize: 10,
   bundlePolicy: "max-bundle",
   rtcpMuxPolicy: "require",
+  iceTransportPolicy: "all",
 };
 
 // ─── Quality Presets ────────────────────────────────────────────────────────
