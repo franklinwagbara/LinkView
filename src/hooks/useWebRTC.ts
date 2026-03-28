@@ -72,7 +72,7 @@ export function useWebRTC(roomId: string) {
         case "room-joined":
           roleRef.current = "viewer";
           setRoom(roomId, "viewer");
-          setConnectionState("connected");
+          // Stay in "connecting" — wait for actual WebRTC peer connection
           if (msg.peers) {
             setPeers(msg.peers);
           }
@@ -228,8 +228,8 @@ export function useWebRTC(roomId: string) {
       pcManager.addStream(localStreamRef.current);
     }
 
-    // Create data channel (initiator only creates it)
-    pcManager.createDataChannel();
+    // Data channel is created by the initiator (offerer) only — NOT here.
+    // The answerer receives it via ondatachannel.
 
     peerConnections.current.set(remotePeerId, pcManager);
     setActivePcManager(pcManager);
@@ -240,6 +240,10 @@ export function useWebRTC(roomId: string) {
   async function initiateConnection(remotePeerId: string): Promise<void> {
     try {
       const pcManager = createPeerConnection(remotePeerId);
+
+      // Only the initiator (offerer) creates the data channel
+      pcManager.createDataChannel();
+
       const offer = await pcManager.createOffer();
 
       sendSignaling({
@@ -259,10 +263,32 @@ export function useWebRTC(roomId: string) {
     sdp: RTCSessionDescriptionInit,
   ): Promise<void> {
     try {
-      const pcManager = createPeerConnection(from);
+      let pcManager = peerConnections.current.get(from);
+
+      // Handle glare: both sides sent offers simultaneously
+      if (pcManager && !pcManager.isClosed) {
+        const signalingState = pcManager.connection.signalingState;
+        if (signalingState === "have-local-offer") {
+          // Tiebreak by peer ID — higher ID wins (keeps their offer)
+          if (peerIdRef.current > from) {
+            console.log("[WebRTC] Glare: ignoring incoming offer (our ID wins)");
+            return;
+          }
+          // They win — discard our offer and accept theirs
+          console.log("[WebRTC] Glare: accepting incoming offer (their ID wins)");
+          pcManager.close();
+          peerConnections.current.delete(from);
+          pcManager = undefined;
+        }
+      }
+
+      if (!pcManager || pcManager.isClosed) {
+        pcManager = createPeerConnection(from);
+      }
+
       await pcManager.setRemoteDescription(sdp);
 
-      // Flush pending ICE candidates
+      // Flush pending ICE candidates from the external queue
       const pending = pendingCandidates.current.get(from) || [];
       for (const candidate of pending) {
         await pcManager.addIceCandidate(candidate);
@@ -359,9 +385,16 @@ export function useWebRTC(roomId: string) {
   }
 
   function mapConnectionState(state: RTCPeerConnectionState): void {
+    const current = useConnectionStore.getState().connectionState;
+
     switch (state) {
+      case "new":
       case "connecting":
-        setConnectionState("connecting");
+        // Don't revert host from "connected" to "connecting" —
+        // the host is already in the room and using the UI.
+        if (current !== "connected") {
+          setConnectionState("connecting");
+        }
         break;
       case "connected":
         setConnectionState("connected");
@@ -371,6 +404,10 @@ export function useWebRTC(roomId: string) {
         break;
       case "failed":
         setConnectionState("failed");
+        setError(
+          "Peer-to-peer connection failed. " +
+          "If peers are on different networks, a TURN server is required."
+        );
         break;
       case "closed":
         setConnectionState("disconnected");

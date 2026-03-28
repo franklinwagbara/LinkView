@@ -27,6 +27,8 @@ export class PeerConnectionManager {
   private controlChannel: RTCDataChannel | null = null;
   private events: Partial<PeerConnectionEvents>;
   private _closed = false;
+  private _remoteDescriptionSet = false;
+  private _pendingIceCandidates: RTCIceCandidateInit[] = [];
 
   constructor(events: Partial<PeerConnectionEvents> = {}) {
     this.events = events;
@@ -105,13 +107,28 @@ export class PeerConnectionManager {
 
   async setRemoteDescription(sdp: RTCSessionDescriptionInit): Promise<void> {
     await this.pc.setRemoteDescription(new RTCSessionDescription(sdp));
+    this._remoteDescriptionSet = true;
+
+    // Flush any ICE candidates that arrived before the remote description was set
+    for (const candidate of this._pendingIceCandidates) {
+      try {
+        await this.pc.addIceCandidate(new RTCIceCandidate(candidate));
+      } catch (err) {
+        console.warn("[PeerConnection] Failed to add queued ICE candidate:", err);
+      }
+    }
+    this._pendingIceCandidates = [];
   }
 
   async addIceCandidate(candidate: RTCIceCandidateInit): Promise<void> {
+    // Queue candidates until remote description is set to avoid race conditions
+    if (!this._remoteDescriptionSet) {
+      this._pendingIceCandidates.push(candidate);
+      return;
+    }
     try {
       await this.pc.addIceCandidate(new RTCIceCandidate(candidate));
     } catch (err) {
-      // Non-critical: ICE candidate may arrive before remote description
       console.warn("[PeerConnection] Failed to add ICE candidate:", err);
     }
   }

@@ -4,12 +4,19 @@ import type { QualityPreset, HealthThresholds } from "@/types";
 
 const stunUrls = (
   process.env.NEXT_PUBLIC_STUN_URLS ||
-  "stun:stun.l.google.com:19302,stun:stun1.l.google.com:19302"
+  "stun:stun.l.google.com:19302,stun:stun1.l.google.com:19302,stun:stun2.l.google.com:19302,stun:stun3.l.google.com:19302,stun:stun4.l.google.com:19302"
 ).split(",");
 
 const iceServers: RTCIceServer[] = [{ urls: stunUrls }];
 
-if (process.env.NEXT_PUBLIC_TURN_URL) {
+// Add TURN servers from environment variables (required for cross-network connections)
+if (process.env.NEXT_PUBLIC_TURN_URLS) {
+  iceServers.push({
+    urls: process.env.NEXT_PUBLIC_TURN_URLS.split(","),
+    username: process.env.NEXT_PUBLIC_TURN_USERNAME || "",
+    credential: process.env.NEXT_PUBLIC_TURN_CREDENTIAL || "",
+  });
+} else if (process.env.NEXT_PUBLIC_TURN_URL) {
   iceServers.push({
     urls: process.env.NEXT_PUBLIC_TURN_URL,
     username: process.env.NEXT_PUBLIC_TURN_USERNAME || "",
