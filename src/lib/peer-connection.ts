@@ -30,9 +30,12 @@ export class PeerConnectionManager {
   private _remoteDescriptionSet = false;
   private _pendingIceCandidates: RTCIceCandidateInit[] = [];
 
-  constructor(events: Partial<PeerConnectionEvents> = {}) {
+  constructor(
+    events: Partial<PeerConnectionEvents> = {},
+    config?: RTCConfiguration,
+  ) {
     this.events = events;
-    this.pc = new RTCPeerConnection(RTC_CONFIG);
+    this.pc = new RTCPeerConnection(config || RTC_CONFIG);
     this.setupEventHandlers();
   }
 
@@ -85,6 +88,15 @@ export class PeerConnectionManager {
 
     this.pc.ondatachannel = (event) => {
       this.handleIncomingDataChannel(event.channel);
+    };
+
+    this.pc.onicegatheringstatechange = () => {
+      const state = this.pc.iceGatheringState;
+      if (state === "gathering") {
+        console.log("[PeerConnection] ICE gathering started");
+      } else if (state === "complete") {
+        console.log("[PeerConnection] ICE gathering complete");
+      }
     };
   }
 

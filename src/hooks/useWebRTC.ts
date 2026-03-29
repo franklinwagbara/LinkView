@@ -28,6 +28,7 @@ export function useWebRTC(roomId: string) {
   const roleRef = useRef<RoomRole | null>(null);
   const hasJoinedRef = useRef(false);
   const iceRestartCount = useRef<Map<string, number>>(new Map());
+  const iceConfigRef = useRef<RTCConfiguration | null>(null);
   const MAX_ICE_RESTARTS = 3;
 
   // State
@@ -110,18 +111,21 @@ export function useWebRTC(roomId: string) {
 
         case "offer":
           if (msg.from && msg.sdp) {
+            console.log(`[WebRTC] Offer received from ${msg.from}`);
             await handleOffer(msg.from, msg.sdp);
           }
           break;
 
         case "answer":
           if (msg.from && msg.sdp) {
+            console.log(`[WebRTC] Answer received from ${msg.from}`);
             await handleAnswer(msg.from, msg.sdp);
           }
           break;
 
         case "ice-candidate":
           if (msg.from && msg.candidate) {
+            console.log(`[WebRTC] ICE candidate received from ${msg.from}`);
             await handleIceCandidate(msg.from, msg.candidate);
           }
           break;
@@ -179,6 +183,35 @@ export function useWebRTC(roomId: string) {
     return unsub;
   }, [roomId]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Fetch ICE/TURN server configuration from the server at runtime
+  useEffect(() => {
+    fetch("/api/ice-servers")
+      .then((res) => {
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        return res.json();
+      })
+      .then((data) => {
+        iceConfigRef.current = {
+          iceServers: data.iceServers,
+          iceCandidatePoolSize: 10,
+          bundlePolicy: "max-bundle" as RTCBundlePolicy,
+          rtcpMuxPolicy: "require" as RTCRtcpMuxPolicy,
+          iceTransportPolicy: "all" as RTCIceTransportPolicy,
+        };
+        const hasTurn = data.iceServers?.some((s: any) =>
+          (Array.isArray(s.urls) ? s.urls : [s.urls]).some(
+            (u: string) => u.startsWith("turn:") || u.startsWith("turns:"),
+          ),
+        );
+        console.log(
+          `[WebRTC] ICE servers loaded: ${data.iceServers?.length} entries, TURN: ${hasTurn ? "YES" : "NO (cross-network will fail)"}`,
+        );
+      })
+      .catch((err) =>
+        console.warn("[WebRTC] Failed to fetch ICE servers, using STUN-only fallback:", err),
+      );
+  }, []);
+
   // ─── Peer Connection Management ─────────────────────────────────────────
 
   function createPeerConnection(remotePeerId: string): PeerConnectionManager {
@@ -189,6 +222,7 @@ export function useWebRTC(roomId: string) {
 
     const pcManager = new PeerConnectionManager({
       onIceCandidate: (candidate) => {
+        console.log(`[WebRTC] ICE candidate generated for ${remotePeerId}: ${candidate.candidate}`);
         sendSignaling({
           type: "ice-candidate",
           candidate: candidate.toJSON(),
@@ -244,7 +278,7 @@ export function useWebRTC(roomId: string) {
       onDataChannelMessage: (data) => {
         console.log("[WebRTC] DataChannel message:", data);
       },
-    });
+    }, iceConfigRef.current || undefined);
 
     // Add local tracks if we're sharing
     if (localStreamRef.current) {
@@ -262,12 +296,14 @@ export function useWebRTC(roomId: string) {
 
   async function initiateConnection(remotePeerId: string): Promise<void> {
     try {
+      console.log(`[WebRTC] Initiating connection to ${remotePeerId}`);
       const pcManager = createPeerConnection(remotePeerId);
 
       // Only the initiator (offerer) creates the data channel
       pcManager.createDataChannel();
 
       const offer = await pcManager.createOffer();
+      console.log(`[WebRTC] Offer sent to ${remotePeerId}`);
 
       sendSignaling({
         type: "offer",
@@ -319,6 +355,7 @@ export function useWebRTC(roomId: string) {
       pendingCandidates.current.delete(from);
 
       const answer = await pcManager.createAnswer();
+      console.log(`[WebRTC] Answer sent to ${from}`);
 
       sendSignaling({
         type: "answer",

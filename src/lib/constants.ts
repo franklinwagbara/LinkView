@@ -1,60 +1,17 @@
 import type { QualityPreset, HealthThresholds } from "@/types";
 
 // ─── WebRTC Configuration ──────────────────────────────────────────────────
+// Default config uses STUN only. TURN credentials are fetched at runtime
+// from /api/ice-servers to ensure they are always valid.
 
-const stunUrls = (
-  process.env.NEXT_PUBLIC_STUN_URLS ||
-  "stun:stun.l.google.com:19302,stun:stun1.l.google.com:19302,stun:stun2.l.google.com:19302,stun:stun3.l.google.com:19302,stun:stun4.l.google.com:19302"
-).split(",");
-
-const iceServers: RTCIceServer[] = [{ urls: stunUrls }];
-
-// Add TURN servers from environment variables
-if (process.env.NEXT_PUBLIC_TURN_URLS) {
-  iceServers.push({
-    urls: process.env.NEXT_PUBLIC_TURN_URLS.split(","),
-    username: process.env.NEXT_PUBLIC_TURN_USERNAME || "",
-    credential: process.env.NEXT_PUBLIC_TURN_CREDENTIAL || "",
-  });
-} else if (process.env.NEXT_PUBLIC_TURN_URL) {
-  iceServers.push({
-    urls: process.env.NEXT_PUBLIC_TURN_URL,
-    username: process.env.NEXT_PUBLIC_TURN_USERNAME || "",
-    credential: process.env.NEXT_PUBLIC_TURN_CREDENTIAL || "",
-  });
-} else {
-  // Free TURN relay servers (OpenRelay by Metered.ca) — required for
-  // cross-network connections where STUN alone can't traverse symmetric NATs.
-  // These are free community TURN servers; replace with your own for production.
-  iceServers.push(
-    {
-      urls: "stun:stun.relay.metered.ca:80",
-    },
-    {
-      urls: "turn:global.relay.metered.ca:80",
-      username: "e9b4139634a9e32ab5641fa5",
-      credential: "IhmXfxTVIkgxZLzl",
-    },
-    {
-      urls: "turn:global.relay.metered.ca:80?transport=tcp",
-      username: "e9b4139634a9e32ab5641fa5",
-      credential: "IhmXfxTVIkgxZLzl",
-    },
-    {
-      urls: "turn:global.relay.metered.ca:443",
-      username: "e9b4139634a9e32ab5641fa5",
-      credential: "IhmXfxTVIkgxZLzl",
-    },
-    {
-      urls: "turns:global.relay.metered.ca:443?transport=tcp",
-      username: "e9b4139634a9e32ab5641fa5",
-      credential: "IhmXfxTVIkgxZLzl",
-    },
-  );
-}
+export const DEFAULT_STUN_URLS = [
+  "stun:stun.l.google.com:19302",
+  "stun:stun1.l.google.com:19302",
+  "stun:stun2.l.google.com:19302",
+];
 
 export const RTC_CONFIG: RTCConfiguration = {
-  iceServers,
+  iceServers: [{ urls: DEFAULT_STUN_URLS }],
   iceCandidatePoolSize: 10,
   bundlePolicy: "max-bundle",
   rtcpMuxPolicy: "require",

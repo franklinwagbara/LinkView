@@ -220,35 +220,54 @@ export function setupSignaling(wss: WebSocketServer): void {
   function handleRelay(ws: WebSocket, msg: SignalingMessage): void {
     const peer = peers.get(ws);
     if (!peer?.roomId) {
+      console.warn(`[Signaling] Relay BLOCKED: peer not in room (type=${msg.type}, peerId=${peer?.id || 'unknown'})`);
       sendTo(ws, { type: "error", message: "Not in a room" });
       return;
     }
 
     const { to } = msg;
+    console.log(`[Signaling] Relay ${msg.type}: ${peer.id} -> ${to || 'broadcast'} (room: ${peer.roomId})`);
+
     if (!to) {
       // Broadcast to all peers in the room
       const room = roomManager.getRoom(peer.roomId);
-      if (!room) return;
+      if (!room) {
+        console.warn(`[Signaling] Relay FAILED: room ${peer.roomId} not found`);
+        return;
+      }
 
+      let sentCount = 0;
       for (const [targetId, targetPeer] of room.peers) {
         if (
           targetId !== peer.id &&
           targetPeer.ws.readyState === WebSocket.OPEN
         ) {
           sendTo(targetPeer.ws, { ...msg, from: peer.id });
+          sentCount++;
         }
       }
+      console.log(`[Signaling] Broadcast ${msg.type} to ${sentCount} peers`);
       return;
     }
 
     // Send to specific peer
     const room = roomManager.getRoom(peer.roomId);
-    if (!room) return;
+    if (!room) {
+      console.warn(`[Signaling] Relay FAILED: room ${peer.roomId} not found`);
+      return;
+    }
 
     const targetPeer = room.peers.get(to);
-    if (targetPeer && targetPeer.ws.readyState === WebSocket.OPEN) {
-      sendTo(targetPeer.ws, { ...msg, from: peer.id });
+    if (!targetPeer) {
+      console.warn(`[Signaling] Relay FAILED: target peer ${to} not found in room ${peer.roomId} (peers: ${[...room.peers.keys()].join(', ')})`);
+      return;
     }
+    if (targetPeer.ws.readyState !== WebSocket.OPEN) {
+      console.warn(`[Signaling] Relay FAILED: target peer ${to} WebSocket not open (state: ${targetPeer.ws.readyState})`);
+      return;
+    }
+
+    sendTo(targetPeer.ws, { ...msg, from: peer.id });
   }
 
   function handleDisconnect(ws: WebSocket): void {
